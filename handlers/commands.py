@@ -1,4 +1,3 @@
-# handlers/commands.py
 """
 Command handlers (Aiogram v2)
 """
@@ -233,42 +232,44 @@ async def cmd_stats(message: types.Message):
 
 <b>Filter Usage:</b>
 """
-    @dp.message_handler(Command("debug"), chat_type=types.ChatType.PRIVATE)
+
+    for filter_name, count in stats.get('filter_stats', {}).items():
+        stats_text += f"• {filter_name.title()}: {count}\n"
+
+    await message.reply(stats_text)
+
+
+@dp.message_handler(Command("debug"), chat_type=types.ChatType.PRIVATE)
 async def cmd_debug(message: types.Message):
     """Debug UserBot and VC status"""
     user_id = message.from_user.id
-    from utils.userbot_manager import userbot_manager
     
     debug_info = []
-    debug_info.append(f"**👤 Your ID:** `{user_id}`")
+    debug_info.append(f"<b>👤 Your ID:</b> <code>{user_id}</code>")
     
     # 1. Check if UserBot client exists
     client = userbot_manager.clients.get(user_id)
     if client:
-        debug_info.append("✅ **UserBot Client:** Connected")
+        debug_info.append("✅ <b>UserBot Client:</b> Connected")
         try:
             me = await client.get_me()
             debug_info.append(f"   🤖 Logged in as: @{me.username} (ID: {me.id})")
         except:
             debug_info.append("   ⚠️ Could not fetch user info")
     else:
-        debug_info.append("❌ **UserBot Client:** Not connected (did /on work?)")
+        debug_info.append("❌ <b>UserBot Client:</b> Not connected (did /on work?)")
     
     # 2. Check active voice chat
     active_vc = userbot_manager.active_chats.get(user_id)
     if active_vc:
-        debug_info.append(f"✅ **Voice Chat:** Joined (Chat ID: `{active_vc}`)")
+        debug_info.append(f"✅ <b>Voice Chat:</b> Joined (Chat ID: <code>{active_vc}</code>)")
     else:
-        debug_info.append("❌ **Voice Chat:** Not joined")
+        debug_info.append("❌ <b>Voice Chat:</b> Not joined")
     
     # 3. Get user's configured chat ID from database
     user_data = await db.get_user(user_id)
     config_chat_id = user_data.get("chat_id") if user_data else None
-    debug_info.append(f"📁 **Configured Group ID in DB:** `{config_chat_id}`")
+    debug_info.append(f"📁 <b>Configured Group ID in DB:</b> <code>{config_chat_id}</code>")
     
-    await message.reply("\n".join(debug_info))
-    
-    for filter_name, count in stats.get('filter_stats', {}).items():
-        stats_text += f"• {filter_name.title()}: {count}\n"
-
-    await message.reply(stats_text)
+    # Send with HTML parsing
+    await message.reply("\n".join(debug_info), parse_mode="HTML")
