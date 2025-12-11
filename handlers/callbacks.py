@@ -1,17 +1,16 @@
 # handlers/callbacks.py
 """
-Callback query handlers (aiogram v3, Router-based)
+Callback query handlers (Aiogram v2)
 """
-from aiogram import Router, types
+from aiogram import types
 from database import db
+from bot import dp
 
-router = Router()
 
-
-@router.callback_query(lambda c: c.data and c.data.startswith("filter_"))
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('filter_'))
 async def handle_filter_callback(callback_query: types.CallbackQuery):
     """Handle filter selection"""
-    filter_type = callback_query.data.split("_")[1]
+    filter_type = callback_query.data.split('_')[1]
     user_id = callback_query.from_user.id
 
     await db.set_filter(user_id, filter_type)
@@ -28,9 +27,4 @@ async def handle_filter_callback(callback_query: types.CallbackQuery):
         f"✅ Filter updated to: <b>{filter_names.get(filter_type, 'Deep')}</b>\n\n"
         f"Now send a voice note to test!"
     )
-
     await callback_query.answer()
-    
-
-# Export router as dp so bot.py can do: from handlers.callbacks import dp as callbacks_dp
-dp = router
