@@ -1,5 +1,4 @@
-### **8. `main.py`** - Main Entry Point
-```python
+### **8. `main.py`** - Main Entry Point python
 #!/usr/bin/env python3
 import os
 import asyncio
