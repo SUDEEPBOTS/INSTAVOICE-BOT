@@ -1,3 +1,4 @@
+# database.py
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -13,9 +14,24 @@ class Database:
         self.client = AsyncIOMotorClient(Config.MONGO_URI)
         self.db = self.client[Config.DB_NAME]
         
-        # Create indexes
+        # Create indexes (be tolerant to existing bad data)
+        # users: unique user_id
         await self.db.users.create_index("user_id", unique=True)
-        await self.db.groups.create_index("chat_id", unique=True)
+
+        # groups: try strict unique index first, fallback to partial unique index
+        try:
+            await self.db.groups.create_index("chat_id", unique=True)
+        except Exception as e:
+            # Likely duplicate null/None values; create a partial unique index
+            print("Warning: failed to create strict unique index on groups.chat_id:", e)
+            print("Creating partial unique index that ignores documents with chat_id == null")
+            await self.db.groups.create_index(
+                [("chat_id", 1)],
+                unique=True,
+                partialFilterExpression={"chat_id": {"$exists": True, "$ne": None}}
+            )
+
+        # voices: compound index for fast queries by user and time
         await self.db.voices.create_index([("user_id", 1), ("timestamp", -1)])
         
         return True
