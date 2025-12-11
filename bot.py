@@ -1,18 +1,20 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+# bot.py
+from datetime import datetime
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage  # v3-style storage import
 from config import Config
 
 # Initialize
 bot = Bot(token=Config.BOT_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+dp = Dispatcher(bot=bot, storage=storage)
 
-# Import handlers
+# Import handlers AFTER dp is created so circular imports don't break
 from handlers.commands import dp as commands_dp
 from handlers.messages import dp as messages_dp
 from handlers.callbacks import dp as callbacks_dp
 
-# Include routers
+# Include routers (commands_dp etc. should be Router instances exported as `dp`)
 dp.include_router(commands_dp)
 dp.include_router(messages_dp)
 dp.include_router(callbacks_dp)
@@ -36,7 +38,7 @@ async def on_startup():
             f"ID: {me.id}\n"
             f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
-    except:
+    except Exception:
         pass
 
 async def on_shutdown():
