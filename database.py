@@ -2,7 +2,11 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 from typing import Optional, Dict, Any
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from config import Config
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
@@ -10,26 +14,65 @@ class Database:
         self.db = None
         
     async def connect(self):
-        """Connect to MongoDB"""
+        """Connect to MongoDB and create indexes with robust fallbacks."""
         self.client = AsyncIOMotorClient(Config.MONGO_URI)
         self.db = self.client[Config.DB_NAME]
         
-        # Create indexes (be tolerant to existing bad data)
         # users: unique user_id
         await self.db.users.create_index("user_id", unique=True)
 
-        # groups: try strict unique index first, fallback to partial unique index
+        # groups: prefer strict unique index, but be tolerant to messy existing data
         try:
             await self.db.groups.create_index("chat_id", unique=True)
-        except Exception as e:
-            # Likely duplicate null/None values; create a partial unique index
-            print("Warning: failed to create strict unique index on groups.chat_id:", e)
-            print("Creating partial unique index that ignores documents with chat_id == null")
-            await self.db.groups.create_index(
-                [("chat_id", 1)],
-                unique=True,
-                partialFilterExpression={"chat_id": {"$exists": True, "$ne": None}}
-            )
+            logger.info("Created strict unique index on groups.chat_id")
+        except DuplicateKeyError as e:
+            # DuplicateKey: likely multiple documents have chat_id == null
+            logger.warning("Strict unique index failed due to duplicate keys: %s", e)
+            # Attempt to unset explicit null values so sparse index will ignore them
+            try:
+                res = await self.db.groups.update_many({"chat_id": None}, {"$unset": {"chat_id": ""}})
+                logger.info("Unset chat_id on %d documents where chat_id was null", res.modified_count)
+                # Now create a sparse unique index (ignores documents missing the field)
+                await self.db.groups.create_index("chat_id", unique=True, sparse=True)
+                logger.info("Created sparse unique index on groups.chat_id after unsetting nulls")
+            except Exception as e2:
+                logger.exception("Failed to create sparse unique index after unsetting nulls: %s", e2)
+                # As a last resort try a partial index that only indexes numeric chat_id values.
+                # Some Mongo servers reject $ne or $not expressions in partialFilterExpression.
+                try:
+                    # Index only documents where chat_id is numeric (int/long/double)
+                    await self.db.groups.create_index(
+                        [("chat_id", 1)],
+                        unique=True,
+                        partialFilterExpression={"chat_id": {"$type": ["int", "long", "double"]}}
+                    )
+                    logger.info("Created partial unique index on numeric chat_id values")
+                except Exception as e3:
+                    logger.exception("Failed to create partial unique index as last resort: %s", e3)
+                    raise e3 from e2
+
+        except OperationFailure as oe:
+            # OperationFailure can mean the server rejected partial expressions or other index options.
+            logger.warning("Creating strict unique index failed (OperationFailure): %s", oe)
+            # Try to create sparse unique index directly (after unsetting nulls)
+            try:
+                res = await self.db.groups.update_many({"chat_id": None}, {"$unset": {"chat_id": ""}})
+                logger.info("Unset chat_id on %d documents where chat_id was null", res.modified_count)
+                await self.db.groups.create_index("chat_id", unique=True, sparse=True)
+                logger.info("Created sparse unique index on groups.chat_id after OperationFailure")
+            except Exception as e2:
+                logger.exception("Failed to recover from OperationFailure when creating groups.chat_id index: %s", e2)
+                # Try partial index by numeric type
+                try:
+                    await self.db.groups.create_index(
+                        [("chat_id", 1)],
+                        unique=True,
+                        partialFilterExpression={"chat_id": {"$type": ["int", "long", "double"]}}
+                    )
+                    logger.info("Created partial unique index on numeric chat_id values (fallback)")
+                except Exception as e3:
+                    logger.exception("Final fallback index creation also failed: %s", e3)
+                    raise e3 from e2
 
         # voices: compound index for fast queries by user and time
         await self.db.voices.create_index([("user_id", 1), ("timestamp", -1)])
