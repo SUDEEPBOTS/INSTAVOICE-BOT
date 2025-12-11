@@ -40,6 +40,10 @@ I convert your voice to Instagram/TikTok trending deep voice and play in voice c
 /setgc - Set group chat
 /filter - Change voice filter
 /status - Check status
+/debug - Debug UserBot status
+/configcheck - Check config
+/envtest - Test environment
+/testuserbot - Test UserBot directly
 
 <b>⚡ Quick Setup:</b>
 1. Add me to group (make admin)
@@ -273,3 +277,187 @@ async def cmd_debug(message: types.Message):
     
     # Send with HTML parsing
     await message.reply("\n".join(debug_info), parse_mode="HTML")
+
+
+@dp.message_handler(Command("configcheck"), chat_type=types.ChatType.PRIVATE)
+async def cmd_configcheck(message: types.Message):
+    """Check config status"""
+    from config import Config
+    
+    # Get config status
+    status = Config.get_env_status()
+    
+    # Check session validity
+    valid, msg = Config.check_session_validity()
+    session_status = f"Session: {'✅ ' + msg if valid else '❌ ' + msg}"
+    
+    await message.reply(f"{status}\n\n{session_status}", parse_mode="HTML")
+
+
+@dp.message_handler(Command("envtest"), chat_type=types.ChatType.PRIVATE)
+async def cmd_envtest(message: types.Message):
+    """Test environment variables"""
+    from config import Config
+    
+    test_results = []
+    test_results.append("<b>🧪 Environment Test Results</b>")
+    test_results.append("="*40)
+    
+    # Test 1: Basic validation
+    try:
+        Config.validate()
+        test_results.append("✅ Basic validation: PASSED")
+    except ValueError as e:
+        test_results.append(f"❌ Basic validation: FAILED - {str(e)}")
+    
+    # Test 2: Session string check
+    valid, msg = Config.check_session_validity()
+    test_results.append(f"{'✅' if valid else '❌'} Session check: {msg}")
+    
+    # Test 3: Required variables
+    required_vars = [
+        ("BOT_TOKEN", Config.BOT_TOKEN),
+        ("API_ID", Config.API_ID),
+        ("API_HASH", Config.API_HASH),
+        ("SESSION_STRING", Config.SESSION_STRING),
+        ("MONGO_URI", Config.MONGO_URI),
+        ("OWNER_ID", Config.OWNER_ID)
+    ]
+    
+    test_results.append("\n<b>Required Variables:</b>")
+    all_good = True
+    for name, value in required_vars:
+        if value:
+            test_results.append(f"  ✅ {name}")
+        else:
+            test_results.append(f"  ❌ {name} - MISSING")
+            all_good = False
+    
+    test_results.append(f"\n{'🎉 All tests passed!' if all_good else '⚠️ Some tests failed!'}")
+    
+    await message.reply("\n".join(test_results), parse_mode="HTML")
+
+
+@dp.message_handler(Command("testuserbot"), chat_type=types.ChatType.PRIVATE)
+async def cmd_testuserbot(message: types.Message):
+    """Directly test UserBot connection"""
+    from config import Config
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    
+    debug_info = []
+    debug_info.append("<b>🧪 UserBot Direct Test</b>")
+    
+    # Step 1: Check config
+    debug_info.append("\n<b>📋 Config Check:</b>")
+    debug_info.append(f"API_ID: {Config.API_ID}")
+    debug_info.append(f"API_HASH: {'✅ Set' if Config.API_HASH else '❌ Missing'}")
+    debug_info.append(f"SESSION_STRING: {'✅ Set' if Config.SESSION_STRING else '❌ Missing'}")
+    if Config.SESSION_STRING:
+        debug_info.append(f"SESSION_STRING length: {len(Config.SESSION_STRING)} chars")
+    
+    # Step 2: Try direct connection
+    debug_info.append("\n<b>🔗 Direct Connection Test:</b>")
+    
+    if not Config.SESSION_STRING:
+        debug_info.append("❌ SESSION_STRING is empty!")
+        await message.reply("\n".join(debug_info), parse_mode="HTML")
+        return
+    
+    client = None
+    try:
+        debug_info.append("1. Creating Telethon client...")
+        
+        # Direct test
+        client = TelegramClient(
+            StringSession(Config.SESSION_STRING),
+            Config.API_ID,
+            Config.API_HASH
+        )
+        
+        debug_info.append("2. Connecting to Telegram...")
+        await client.connect()
+        
+        debug_info.append("3. Checking authorization...")
+        if not await client.is_user_authorized():
+            debug_info.append("❌ NOT AUTHORIZED - Session invalid/expired!")
+            await client.disconnect()
+        else:
+            me = await client.get_me()
+            debug_info.append(f"✅ AUTHORIZED as @{me.username} (ID: {me.id})")
+            
+            # Try to send a test message
+            try:
+                await client.send_message("me", "✅ UserBot test from Railway - Bot is working!")
+                debug_info.append("✅ Test message sent to Saved Messages")
+            except Exception as e:
+                debug_info.append(f"⚠️ Message test failed: {str(e)}")
+            
+            await client.disconnect()
+            debug_info.append("✅ Disconnected successfully")
+            debug_info.append("\n🎉 <b>UserBot is WORKING correctly!</b>")
+            
+    except Exception as e:
+        debug_info.append(f"❌ Connection failed: {type(e).__name__}: {str(e)}")
+        
+        # Try to get more specific error
+        error_str = str(e).lower()
+        if "invalid" in error_str or "expired" in error_str:
+            debug_info.append("\n⚠️ <b>SESSION STRING INVALID or EXPIRED</b>")
+            debug_info.append("Generate new session string using Termux")
+        elif "timeout" in error_str:
+            debug_info.append("\n⚠️ <b>NETWORK TIMEOUT</b>")
+            debug_info.append("Check Railway network connectivity")
+        elif "password" in error_str:
+            debug_info.append("\n⚠️ <b>2FA PASSWORD REQUIRED</b>")
+            debug_info.append("Your account has 2FA enabled")
+        
+        if client:
+            try:
+                await client.disconnect()
+            except:
+                pass
+    
+    # Send final report
+    await message.reply("\n".join(debug_info), parse_mode="HTML")
+
+
+@dp.message_handler(Command("help"), chat_type=types.ChatType.PRIVATE)
+async def cmd_help(message: types.Message):
+    """Show help menu"""
+    help_text = """
+🎤 <b>InstaVoice Bot - Help Menu</b>
+
+<b>📱 Basic Commands:</b>
+/start - Start the bot
+/on - Activate bot & join VC
+/off - Deactivate bot
+/stop - Leave voice chat
+/setgc - Set group chat
+/filter - Change voice filter
+/status - Check bot status
+
+<b>🔧 Debug Commands:</b>
+/debug - Check UserBot status
+/configcheck - Check configuration
+/envtest - Test environment variables
+/testuserbot - Test UserBot directly
+
+<b>👑 Owner Commands:</b>
+/stats - View bot statistics
+
+<b>⚡ Quick Guide:</b>
+1. Add bot to group (make admin)
+2. Use /setgc with group link
+3. Use /on to activate
+4. Send voice notes to bot
+5. Voice will play in group VC
+
+<b>❓ Need Help?</b>
+If bot doesn't work:
+1. Use /testuserbot to check UserBot
+2. Use /debug to see current status
+3. Check Railway logs for errors
+"""
+
+    await message.reply(help_text, parse_mode="HTML")
