@@ -1,37 +1,58 @@
+# handlers/messages.py
 """
-Message handlers
+Message handlers (aiogram v3, Router-based)
 """
-from aiogram import Dispatcher, types
-from aiogram.dispatcher import FSMContext
+from aiogram import Router, types
+from aiogram.fsm.context import FSMContext
 
 from src.voice_service import VoiceService
 from database import db
 
-dp = Dispatcher()
+router = Router()
 voice_service = VoiceService()
 
-@dp.message_handler(content_types=types.ContentType.VOICE, chat_type=types.ChatType.PRIVATE)
+
+def _is_private(chat: types.Chat) -> bool:
+    try:
+        return chat.type == types.ChatType.PRIVATE
+    except Exception:
+        return False
+
+
+@router.message(lambda message: message.content_type == types.ContentType.VOICE)
 async def handle_voice(message: types.Message):
-    """Handle voice messages"""
+    """Handle voice messages (private only)"""
+    if not _is_private(message.chat):
+        return
+
     processing_msg = await message.reply("🔮 Processing your voice...")
-    
+
     user_id = message.from_user.id
     voice_file_id = message.voice.file_id
-    
+
     # Process voice
+    # voice_service.process_voice should be async and accept (user_id, file_id, bot)
     success, result = await voice_service.process_voice(user_id, voice_file_id, message.bot)
-    
+
     await processing_msg.edit_text(result)
 
-@dp.message_handler(content_types=types.ContentType.TEXT, chat_type=types.ChatType.PRIVATE)
+
+@router.message(lambda message: message.content_type == types.ContentType.TEXT)
 async def handle_text(message: types.Message):
-    """Handle text messages"""
-    # Ignore if it's a command
-    if message.text.startswith('/'):
+    """Handle text messages (private only)"""
+    if not _is_private(message.chat):
         return
-        
-    # Check if waiting for something
+
+    # Ignore if it's a command
+    text = (message.text or "").strip()
+    if text.startswith("/"):
+        return
+
     await message.reply(
         "💡 Send me a voice note and I'll play it in deep voice!\n\n"
         "Use /help for commands."
     )
+
+
+# Export as `dp` so bot.py can import: from handlers.messages import dp as messages_dp
+dp = router
