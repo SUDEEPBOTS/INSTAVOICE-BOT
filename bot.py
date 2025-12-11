@@ -1,7 +1,7 @@
 # bot.py
 from datetime import datetime
 from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage  # v3-style storage import
+from aiogram.contrib.fsm_storage.memory import MemoryStorage # v3-style storage import
 from config import Config
 
 # Initialize
