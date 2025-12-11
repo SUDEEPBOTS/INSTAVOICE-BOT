@@ -1,36 +1,25 @@
 # handlers/commands.py
 """
-Command handlers (aiogram v3, Router-based)
+Command handlers (Aiogram v2)
 """
-from aiogram import Router, types, F
-from aiogram.filters import Command
+from aiogram import types
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
 
 from config import Config
 from database import db
 from utils.userbot_manager import userbot_manager
 from handlers.states import UserStates
-
-router = Router()
-
-
-def _is_private(chat: types.Chat) -> bool:
-    try:
-        return chat.type == types.ChatType.PRIVATE
-    except Exception:
-        return False
+from bot import dp  # ✅ yahi se main Dispatcher le rahe hain, naya nahi bana rahe
 
 
-@router.message(Command("start"))
+@dp.message_handler(Command("start"), chat_type=types.ChatType.PRIVATE)
 async def cmd_start(message: types.Message):
-    """Handle /start command (private chats only)"""
-    if not _is_private(message.chat):
-        return
-
+    """Handle /start command"""
     user_id = message.from_user.id
     username = message.from_user.username
-    first_name = message.from_user.first_name or "User"
+    first_name = message.from_user.first_name
 
     await db.add_user(user_id, username, first_name)
 
@@ -65,12 +54,9 @@ Made with ❤️ by @{username or 'InstaVoice'}
     await message.reply(welcome)
 
 
-@router.message(Command("on"))
+@dp.message_handler(Command("on"), chat_type=types.ChatType.PRIVATE)
 async def cmd_on(message: types.Message):
     """Activate bot"""
-    if not _is_private(message.chat):
-        return
-
     user_id = message.from_user.id
     user = await db.get_user(user_id)
 
@@ -99,12 +85,9 @@ async def cmd_on(message: types.Message):
         await message.reply("⚠️ Bot activated but couldn't join VC. Check permissions.")
 
 
-@router.message(Command("off"))
+@dp.message_handler(Command("off"), chat_type=types.ChatType.PRIVATE)
 async def cmd_off(message: types.Message):
     """Deactivate bot"""
-    if not _is_private(message.chat):
-        return
-
     user_id = message.from_user.id
 
     await userbot_manager.leave_voice_chat(user_id)
@@ -114,12 +97,9 @@ async def cmd_off(message: types.Message):
     await message.reply("✅ Bot deactivated!")
 
 
-@router.message(Command("stop"))
+@dp.message_handler(Command("stop"), chat_type=types.ChatType.PRIVATE)
 async def cmd_stop(message: types.Message):
     """Leave voice chat"""
-    if not _is_private(message.chat):
-        return
-
     user_id = message.from_user.id
 
     await userbot_manager.leave_voice_chat(user_id)
@@ -128,38 +108,31 @@ async def cmd_stop(message: types.Message):
     await message.reply("✅ Left voice chat!")
 
 
-@router.message(Command("setgc"))
+@dp.message_handler(Command("setgc"), chat_type=types.ChatType.PRIVATE)
 async def cmd_setgc(message: types.Message, state: FSMContext):
-    """Set group chat - ask for link"""
-    if not _is_private(message.chat):
-        return
-
-    await state.set_state(UserStates.waiting_for_gc_link)
+    """Set group chat"""
+    await UserStates.waiting_for_gc_link.set()
     await message.reply("Please send your group link (e.g., https://t.me/groupname or @groupname):")
 
 
-@router.message()  # will process messages while in state
+@dp.message_handler(state=UserStates.waiting_for_gc_link, chat_type=types.ChatType.PRIVATE)
 async def process_gc_link(message: types.Message, state: FSMContext):
-    """Process group link when user is in waiting_for_gc_link state"""
-    current_state = await state.get_state()
-    if current_state != UserStates.waiting_for_gc_link.state:
-        return  # not our state, ignore
-
+    """Process group link"""
     try:
-        link = (message.text or "").strip()
+        link = message.text.strip()
         user_id = message.from_user.id
 
         # Extract username
         if "t.me/" in link:
-            username = link.split("t.me/")[-1].replace("@", "").strip()
+            username = link.split("t.me/")[-1].replace("@", "")
         elif link.startswith("@"):
-            username = link[1:].strip()
+            username = link[1:]
         else:
             await message.reply("Invalid format! Use: https://t.me/username or @username")
-            await state.clear()
+            await state.finish()
             return
 
-        # Get chat info (import bot here to avoid circular import)
+        # Get chat info
         from bot import bot
         chat = await bot.get_chat(f"@{username}")
 
@@ -167,32 +140,28 @@ async def process_gc_link(message: types.Message, state: FSMContext):
         await db.set_group(
             user_id=user_id,
             chat_id=chat.id,
-            title=getattr(chat, "title", username),
+            title=chat.title,
             username=username
         )
 
         await message.reply(
             f"✅ Group set successfully!\n\n"
-            f"<b>Group:</b> {getattr(chat, 'title', username)}\n"
+            f"<b>Group:</b> {chat.title}\n"
             f"<b>ID:</b> <code>{chat.id}</code>\n\n"
             f"Now use /on to activate!"
         )
 
     except Exception as e:
         await message.reply(
-            f"Error: {str(e)}\n\nMake sure:\n"
-            f"1. Bot is added to group\n2. Bot is admin"
+            f"Error: {str(e)}\n\nMake sure:\n1. Bot is added to group\n2. Bot is admin"
         )
     finally:
-        await state.clear()
+        await state.finish()
 
 
-@router.message(Command("filter"))
+@dp.message_handler(Command("filter"), chat_type=types.ChatType.PRIVATE)
 async def cmd_filter(message: types.Message):
     """Change voice filter"""
-    if not _is_private(message.chat):
-        return
-
     keyboard = InlineKeyboardMarkup(row_width=2)
 
     filters = [
@@ -217,12 +186,9 @@ async def cmd_filter(message: types.Message):
     )
 
 
-@router.message(Command("status"))
+@dp.message_handler(Command("status"), chat_type=types.ChatType.PRIVATE)
 async def cmd_status(message: types.Message):
     """Check bot status"""
-    if not _is_private(message.chat):
-        return
-
     user_id = message.from_user.id
     user = await db.get_user(user_id)
 
@@ -244,12 +210,9 @@ async def cmd_status(message: types.Message):
     await message.reply(status_text)
 
 
-@router.message(Command("stats"))
+@dp.message_handler(Command("stats"), chat_type=types.ChatType.PRIVATE)
 async def cmd_stats(message: types.Message):
-    """User statistics (owner only)"""
-    if not _is_private(message.chat):
-        return
-
+    """User statistics"""
     user_id = message.from_user.id
 
     # Check owner
@@ -275,7 +238,3 @@ async def cmd_stats(message: types.Message):
         stats_text += f"• {filter_name.title()}: {count}\n"
 
     await message.reply(stats_text)
-
-
-# Export router as `dp` so bot.py can do: from handlers.commands import dp as commands_dp
-dp = router
