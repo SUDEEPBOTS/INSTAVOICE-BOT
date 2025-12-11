@@ -1,34 +1,29 @@
 # bot.py
 from datetime import datetime
 from aiogram import Bot, Dispatcher
-from aiogram.contrib.fsm_storage.memory import MemoryStorage # v3-style storage import
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+
 from config import Config
 
-# Initialize
+# Initialize bot & dispatcher (Aiogram v2 style)
 bot = Bot(token=Config.BOT_TOKEN, parse_mode="HTML")
 storage = MemoryStorage()
-dp = Dispatcher(bot=bot, storage=storage)
+dp = Dispatcher(bot, storage=storage)
 
-# Import handlers AFTER dp is created so circular imports don't break
-from handlers.commands import dp as commands_dp
-from handlers.messages import dp as messages_dp
-from handlers.callbacks import dp as callbacks_dp
+# Import handlers (they will import dp from here)
+from handlers import commands, messages, callbacks
 
-# Include routers (commands_dp etc. should be Router instances exported as `dp`)
-dp.include_router(commands_dp)
-dp.include_router(messages_dp)
-dp.include_router(callbacks_dp)
 
 # Startup/shutdown
 async def on_startup():
     """Bot startup actions"""
     me = await bot.get_me()
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"🎤 InstaVoice Bot Started!")
     print(f"🤖 Bot: @{me.username}")
     print(f"👤 Owner: {Config.OWNER_ID}")
-    print("="*50)
-    
+    print("=" * 50)
+
     # Send to owner
     try:
         await bot.send_message(
@@ -41,10 +36,11 @@ async def on_startup():
     except Exception:
         pass
 
+
 async def on_shutdown():
     """Bot shutdown actions"""
     print("\n👋 Bot is shutting down...")
-    
+
     # Cleanup
     from utils.userbot_manager import userbot_manager
     await userbot_manager.stop_all()
